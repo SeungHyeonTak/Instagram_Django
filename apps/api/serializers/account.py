@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from core.account.models import User, UserEmailAuthentication
+
+from core.account.models import User
 
 
 class UserSerializer(serializers.HyperlinkedModelSerializer):
@@ -14,12 +15,6 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = User
-        fields = '__all__'
-
-
-class UserEmailAuthenticationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserEmailAuthentication
         fields = '__all__'
 
 

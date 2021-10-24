@@ -88,9 +88,7 @@ REST_FRAMEWORK = {
     ),
     # 로그인과 관련된 클래스
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_jwt.authentication.JSONWebTokenAuthentication',  # JWT 사용
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
+        'rest_framework_jwt.authentication.JSONWebTokenAuthentication',
     ),
     # Pagination
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -134,11 +132,11 @@ LANGUAGE_CODE = 'ko-kr'
 
 TIME_ZONE = 'Asia/Seoul'
 
-USE_I18N = True
+USE_I18N = True  # 국제화
 
-USE_L10N = True
+USE_L10N = True  # 지역화
 
-USE_TZ = True
+USE_TZ = False  # 장고 시간대
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
@@ -159,3 +157,12 @@ EMAIL_HOST = get_secret('EMAIL')['EMAIL_HOST']
 EMAIL_HOST_USER = get_secret('EMAIL')['EMAIL_HOST_USER']
 EMAIL_HOST_PASSWORD = get_secret('EMAIL')['EMAIL_HOST_PASSWORD']
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+JWT_AUTH = {
+    'JWT_SECRET_KEY': SECRET_KEY,
+    'JWT_ALGORITHM': 'HS256',
+    'JWT_ALLOW_REFRESH': True,
+    'JWT_EXPIRATION_DELTA': datetime.timedelta(minutes=30),
+    'JWT_REFRESH_EXPIRATION_DELTA': datetime.timedelta(days=2),
+    'JWT_AUTH_HEADER_PREFIX': 'Bearer'  # token 시작할때 구분자
+}

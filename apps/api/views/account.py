@@ -1,18 +1,21 @@
+import datetime
 import random
 
-from django.contrib.auth import authenticate, login, logout
+import jwt
+from django.conf import settings
+from django.contrib.auth import authenticate, logout
+from django.contrib.auth.models import update_last_login
 from django.core.mail import EmailMessage
 from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets, status, permissions
-from rest_framework.authentication import SessionAuthentication
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_jwt.authentication import JSONWebTokenAuthentication
+from rest_framework_jwt.settings import api_settings
 
-from apps.api.serializers.account import UserSerializer, SigninSerializer, SignoutSerializer, \
-    UserEmailAuthenticationSerializer, WithdrawalSerializer
-from core.account.models import User, UserEmailAuthentication
+from apps.api.serializers.account import UserSerializer, SignoutSerializer
+from core.account.models import User, UserEmailAuthentication, Administrator
 
 
 class SignupViewSet(viewsets.ModelViewSet):
@@ -34,7 +37,10 @@ class SignupViewSet(viewsets.ModelViewSet):
         """이메일 가입 여부 및 계정 이름 확인"""
         user_check = False
         for key, value in kwargs.items():
-            user_check = self.queryset.filter(email=value).values(key).exists()
+            if kwargs.get('email'):
+                user_check = self.queryset.filter(email=value).values(key).exists()
+            if kwargs.get('username'):
+                user_check = self.queryset.filter(username=value).values(key).exists()
         return user_check
 
     def is_value_phone_check(self, phone):
@@ -83,7 +89,7 @@ class SignupViewSet(viewsets.ModelViewSet):
         return response_message, status_code, is_params_checked
 
     def email_send(self, user):
-        """SMS 인증 확인"""
+        """email 인증 확인"""
         user_email = UserEmailAuthentication.objects.filter(user__email=user.email).values('security_code').first()
 
         try:
@@ -144,6 +150,10 @@ class SignupViewSet(viewsets.ModelViewSet):
             # 이메일 인증 처리 부분
             self.email_send(user)
             status_code = status.HTTP_200_OK
+            response_message = {
+                "pk": user.pk,
+                "email": user.email
+            }
             is_checked = True
 
         return response_message, status_code, is_checked
@@ -175,9 +185,8 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
     partial_update : 회원탈퇴
     """
     queryset = User.objects.all()
-    authentication_classes = [SessionAuthentication]  # SessionAuthentication
+    authentication_classes = [JSONWebTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]  # 인증된 사용자
-    serializer_class = WithdrawalSerializer
 
     def params_validate(self, request):
         """파라미터 유효성 검사 (탈퇴이유)"""
@@ -186,39 +195,44 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
         reason = request_data.get('reason', None)
         return is_params_checked, reason
 
-    def withdrawal(self, request, reason=''):  # 탈퇴 사유 적기
+    def withdrawal(self, user, reason=''):  # 탈퇴 사유 적기
         """회원탈퇴를 위한 비지니스 로직 작성"""
-        if self.params_validate(request):
+        response_message = {}
+        status_code = status.HTTP_403_FORBIDDEN
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        user = User.objects.get(pk=user.pk)
+        try:
+            user.email = f'Insta-left{user.pk}@instagram.com'
+            user.username = '탈퇴계정'
+            user.fullname = '탈퇴회원'
+            user.gender = 0
+            user.photo = None
+            user.web_site = ''
+            user.introduction = f'탈퇴 사유 : {reason} \n 탈퇴 날짜 : {now}'
+            user.is_active = False
+            user.save()
+
+            is_checked = True
+        except Exception as e:
+            print(f'회원탈퇴 Error : {e}')
             is_checked = False
-            response_message = {}
-            status_code = status.HTTP_403_FORBIDDEN
+            response_message = {'403': '회원 탈퇴에 실패하였습니다.'}
 
-            user = request.user
-            now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            try:
-                user.email = f'Insta-left{user.pk}@instagram.com'
-                user.username = '탈퇴계정'
-                user.fullname = '탈퇴회원'
-                user.gender = 0
-                user.photo = user.web_site = ''
-                user.introduction = f'탈퇴 사유 : {reason} \n 탈퇴 날짜 : {now}'
-                user.is_active = False
-                user.save()
-
-                request.session.flush()
-                is_checked = True
-            except Exception as e:
-                print(f'회원탈퇴 Error : {e}')
-                response_message = {'403': '회원 탈퇴에 실패하였습니다.'}
-
-            return response_message, status_code, is_checked
+        return response_message, status_code, is_checked
 
     def partial_update(self, request, *args, **kwargs):
+        """
+        회원탈퇴
+
+        ---
+        ##  /account/withdrawal/
+        """
         try:
             is_params_checked, reason = self.params_validate(request)
             if is_params_checked:
-                response_message, status_code, is_checked = self.withdrawal(request, reason)
+                response_message, status_code, is_checked = self.withdrawal(self.request.user, reason)
+                request.session.flush()
                 return Response(data=response_message, status=status_code)
         except Exception as e:
             print(f'error : {e}')
@@ -234,8 +248,7 @@ class SigninViewSet(viewsets.ModelViewSet):
 
     queryset = User.objects.all()
     authentication_classes = []
-    permission_classes = []
-    serializer_class = SigninSerializer
+    permission_classes = [permissions.AllowAny]
 
     def params_validate(self, request):
         """파라미터 유효성 검사"""
@@ -262,37 +275,50 @@ class SigninViewSet(viewsets.ModelViewSet):
 
     def signin(self, request):
         """로그인 비지니스 로직"""
-        if self.params_validate(request):
-            request_data = request.data
-            is_checked = False
-            response_message = {}
-            status_code = status.HTTP_400_BAD_REQUEST
+        request_data = request.data
+        is_checked = False
+        response_message = {}
+        status_code = status.HTTP_400_BAD_REQUEST
 
-            email = request_data.get('email')
-            password = request_data.get('password')
+        email = request_data.get('email')
+        password = request_data.get('password')
 
-            user = authenticate(email=email, password=password) if email and password else None
+        user = authenticate(email=email, password=password) if email and password else None
 
-            if user and not user.is_active:
-                response_message = {'400 - 2': '회원 계정 활성을 위해 이메일 인증이 필요합니다.'}
-                return response_message, status_code, is_checked
-            elif user and (user.username in 'left'):
-                response_message = {'400 - 3': '탈퇴한 회원입니다.'}
-                return response_message, status_code, is_checked
-            elif user is None:
-                response_message = {'400 - 4': '이메일 또는 패스워드가 일치하지 않습니다.'}
-                return response_message, status_code, is_checked
-            else:
-                is_checked = True
-                login(request, user)  # login() 함수에서 세션 정보 기입
-                print(self.request.META)
-                response_message.update({
-                    'user': user.fullname,
-                    # 'sessionid': self.request.META['HTTP_SESSIONID'],
-                    'X-CSRFToken': self.request.META['CSRF_COOKIE']
-                })
-                status_code = status.HTTP_200_OK
-                return response_message, status_code, is_checked
+        if user and not user.is_active:
+            response_message = {'400 - 2': '회원 계정 활성을 위해 이메일 인증이 필요합니다.'}
+            return response_message, status_code, is_checked
+        elif user and (user.username in 'left'):
+            response_message = {'400 - 3': '탈퇴한 회원입니다.'}
+            return response_message, status_code, is_checked
+        elif user is None:
+            response_message = {'400 - 4': '이메일 또는 패스워드가 일치하지 않습니다.'}
+            return response_message, status_code, is_checked
+        else:
+            JWT_PAYLOAD_HANDLER = api_settings.JWT_PAYLOAD_HANDLER
+            JWT_ENCODE_HANDLER = api_settings.JWT_ENCODE_HANDLER
+
+            is_checked = True
+
+            payload = JWT_PAYLOAD_HANDLER(user)
+            jwt_token = JWT_ENCODE_HANDLER(payload)
+            update_last_login(None, user)
+
+            # JWT
+            # encoded_jwt = jwt.encode(
+            #     {
+            #         'pk': user.pk
+            #     },
+            #     settings.SECRET_KEY,
+            #     algorithm='HS256'
+            # )
+            response_message.update({
+                # 'token': encoded_jwt
+                'email': user.email,
+                'token': jwt_token
+            })
+            status_code = status.HTTP_200_OK
+            return response_message, status_code, is_checked
 
     def create(self, request, *args, **kwargs):
         """
@@ -322,7 +348,7 @@ class SignoutViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     serializer_class = SignoutSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def signout(self, request):
         """로그아웃 비지니스 로직"""
@@ -361,12 +387,11 @@ class SignoutViewSet(viewsets.ModelViewSet):
 
 class ActivateViewSet(viewsets.ModelViewSet):
     """
-    update: 유저를 활성화한다. (SMS 인증 코드를 입력한 유저만 로그인 할 수 있다.)
+    update: 유저를 활성화한다. (email 인증 코드를 입력한 유저만 로그인 할 수 있다.)
     """
     queryset = UserEmailAuthentication.objects.all()
-    authentication_classes = [SessionAuthentication]
+    authentication_classes = []
     permission_classes = []
-    serializer_class = UserEmailAuthenticationSerializer
 
     def params_validate(self, request):
         """파라미터 유효성 검사"""
@@ -374,36 +399,52 @@ class ActivateViewSet(viewsets.ModelViewSet):
         is_params_checked = True
         response_message = {}
         status_code = status.HTTP_200_OK
+        loss_params = []
 
+        email = request_data.get('email', None)
         security_code = request_data.get('security_code', None)
+
+        if email is None:
+            loss_params.append('user_id')
+        if security_code is None:
+            loss_params.append('security_code')
 
         if security_code is None:
             is_params_checked = False
             response_message = {'400 - 1': '필수파라미터(security_code)가 없습니다.'}
             status_code = status.HTTP_200_OK
             return response_message, status_code, is_params_checked
+        else:
+            response_message = {
+                'email': email,
+                'security_code': security_code
+            }
 
         return response_message, status_code, is_params_checked
 
-    def activate(self, request):
-        """sms 인증 처리"""
-        request_data = request.data
+    def activate(self, email, security_code):
+        """email 인증 처리"""
         is_checked = False
         response_message = {'400 - 2': '이메일 인증코드가 잘못되었습니다.'}
         status_code = status.HTTP_400_BAD_REQUEST
 
-        security_code = request_data.get('security_code')
+        user = User.objects.filter(email=email).first()
+        sec_code = self.queryset.filter(user=user).first()
 
-        user_auth = self.queryset.filter(security_code=security_code).values('user').first()['user']
+        if user and sec_code.security_code == int(security_code):
+            now = timezone.now()
+            if sec_code.created_at + datetime.timedelta(minutes=3) >= now:
+                is_checked = True
 
-        if user_auth:
-            user = User.objects.filter(id=user_auth)
-            user.update(is_active=True)
-            response_message = {}
-            status_code = status.HTTP_200_OK
-            is_checked = True
-            code = self.queryset.filter(security_code=security_code)
-            code.update(security_code=-1, verification=True)  # 인증한 코드는 -1로 변환 (4자리 수가 얼마 없기때문에)
+                sec_code.security_code = -1
+                sec_code.verification = True
+                sec_code.save()
+
+                user.is_active = True
+                user.save()
+
+                response_message = {}
+                status_code = status.HTTP_200_OK
 
         return response_message, status_code, is_checked
 
@@ -411,7 +452,9 @@ class ActivateViewSet(viewsets.ModelViewSet):
         try:
             response_message, status_code, is_checked = self.params_validate(request)
             if is_checked:
-                response_message, status_code, is_checked = self.activate(request)
+                email = response_message.get('email')
+                security_code = response_message.get('security_code')
+                response_message, status_code, is_checked = self.activate(email, security_code)
             return Response(
                 data=response_message if is_checked else response_message,
                 status=status_code if is_checked else status_code
@@ -421,3 +464,79 @@ class ActivateViewSet(viewsets.ModelViewSet):
             response_message = {'500': '서버 에러'}
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             return Response(data=response_message, status=status_code)
+
+
+class UserInformationViewSet(viewsets.ModelViewSet):
+    """
+    list: 유저정보 조회
+    partial_update: 유저정보 수정
+    """
+    authentication_classes = [JSONWebTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = User.objects.all()
+
+    def get_user_information(self, user):
+        user_information = {}
+        status_code = status.HTTP_400_BAD_REQUEST
+
+        if user.is_authenticated:
+            email_auth = UserEmailAuthentication.objects.filter(user=user).first()
+
+            user_information.update({
+                "id": user.pk,
+                "email": user.email,
+                "phone": user.phone,
+                "username": user.username,
+                "fullname": user.fullname,
+                "photo": user.photo.url if user.photo else None,
+                "gender": user.gender,
+                "web_site": user.web_site,
+                "introduction": user.introduction,
+                "is_active": user.is_active,
+                "is_superuser": user.is_superuser,
+                "user_email_authentication": {
+                    "verification": email_auth.verification if email_auth else None
+                }
+            })
+            if user.is_superuser:
+                admin = Administrator.objects.filter(user=user).first()
+                user_information.update({
+                    "administrator": {
+                        "type": '전체 관리자' if admin.type == 0 else '비지니스 관리자',
+                        "is_active": admin.is_active
+                    }
+                })
+            status_code = status.HTTP_200_OK
+
+        return user_information, status_code
+
+    def list(self, request, *args, **kwargs):
+        """
+        유저정보 조회
+
+        ---
+        ## /account/information/
+        """
+        try:
+            user_information, status_code = self.get_user_information(self.request.user)
+            return Response(data=user_information, status=status_code)
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+    # def partial_update(self, request, *args, **kwargs):
+    #     """
+    #     유저정보 수정
+    #
+    #     ---
+    #     ## /account/information/
+    #     """
+    #     try:
+    #         return Response()
+    #     except Exception as e:
+    #         print(f'error : {e}')
+    #         response_message = {'500': '서버 에러'}
+    #         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    #         return Response(data=response_message, status=status_code)

@@ -114,7 +114,6 @@ class Administrator(models.Model):
 class UserEmailAuthentication(models.Model):
     """
     사용자 이메일 인증 확인
-    이후 보안 코드쪽도 추가하기
     """
     user = models.ForeignKey('User', related_name='user_email', on_delete=models.CASCADE)
     security_code = models.IntegerField(verbose_name=_('보안코드'))
