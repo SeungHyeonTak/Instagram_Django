@@ -127,3 +127,20 @@ class UserEmailAuthentication(models.Model):
 
     def __str__(self):
         return f'{self.user}({self.security_code})'
+
+
+class JWTokens(models.Model):
+    """
+    토큰 관리
+    존재의 이유 : 로그인이나 로그아웃을 중복으로 실행되는 경우를 막기 위해 존재
+    """
+    token = models.CharField(verbose_name=_('발행 토큰'), max_length=255)
+    user = models.ForeignKey('User', related_name='user_token', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(verbose_name=_('생성일'), auto_now_add=True)
+
+    class Meta:
+        db_table = 'json_web_token_storage'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user}({self.token})'

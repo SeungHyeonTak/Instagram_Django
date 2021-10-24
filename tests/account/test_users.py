@@ -1,5 +1,6 @@
 from tests.tests import Test
-from apps.api.views.account import SignupViewSet, WithdrawalViewSet
+from apps.api.views.account import SignupViewSet, WithdrawalViewSet, SigninViewSet, ActivateViewSet, \
+    UserInformationViewSet
 from core.account.models import User, UserEmailAuthentication
 
 
@@ -8,6 +9,12 @@ class UsersTest(Test):
 
     def setUp(self):
         super().setUp()
+        self.request.data = {
+            'email': self.user_email,
+            'phone': self.user_phone,
+            'username': self.user_username,
+            'password': self.user_password
+        }
 
     def test_signup(self):
         """회원가입 성공"""
@@ -204,14 +211,90 @@ class UsersTest(Test):
         self.assertEqual(f'Insta-left{user.pk}@instagram.com', user.email)
         self.assertEqual(False, user.is_active)
 
-    # def test_signin(self):
-    #     """로그인 성공"""
-    #     print('로그인 성공')
-    #
-    # def test_signin_email_check(self):
-    #     """로그인 이메일 틀렸을때"""
-    #     print('로그인 이메일 틀림')
-    #
-    # def test_user_is_active(self):
-    #     """사용자 계정 비활성화"""
-    #     print('사용자 계정 비활성화 일때')
+    def test_signin(self):
+        """로그인 성공"""
+        print('[로그인] 성공')
+        user_signin = SigninViewSet()
+        message, status, is_checked = user_signin.signin(self.request)
+        self.assertEqual(True, is_checked)
+
+    def test_signin_email_check(self):
+        """탈퇴한 회원이 로그인 시도할때"""
+        print('[로그인] 탈퇴한 회원')
+        user_signin = SigninViewSet()
+        self.request.data.update({
+            'email': 'Insta-left@aaa.com',
+            'password': self.user_password
+        })
+        message, status, is_checked = user_signin.signin(self.request)
+
+        self.assertEqual(False, is_checked)
+        self.assertEqual('400 - 3', '400 - 3' if '400 - 3' in message.keys() else '0')
+
+    def test_user_is_email(self):
+        """이메일 틀렸을때"""
+        print('[로그인] 이메일 실패')
+        user_signin = SigninViewSet()
+        self.request.data.update({
+            'email': 'testtest@test.com',
+            'password': self.user_password
+        })
+        message, status, is_checked = user_signin.signin(self.request)
+
+        self.assertEqual(False, is_checked)
+        self.assertEqual('400 - 2', '400 - 2' if '400 - 2' in message.keys() else '0')
+
+    def test_user_is_password(self):
+        """비밀번호 틀렸을때"""
+        print('[로그인] 비밀번호 실패')
+        user_signin = SigninViewSet()
+        self.request.data.update({
+            'email': self.user_email,
+            'password': '11111'
+        })
+        message, status, is_checked = user_signin.signin(self.request)
+
+        self.assertEqual(False, is_checked)
+        self.assertEqual('400 - 2', '400 - 2' if '400 - 2' in message.keys() else '0')
+
+    def test_user_activate(self):
+        """유저 활성화"""
+        print('[이메일 인증코드 확인] 인증코드 확인 성공')
+        user_signup = SignupViewSet()
+        activate = ActivateViewSet()
+
+        self.request.data = {
+            'email': 'testSignup@test.com',
+            'password': '1234qwer',
+            'username': '테스트회원가입',
+            'fullname': '테스트계정회원가입',
+            'phone': '01033334444',
+            'gender': 2,
+        }
+
+        user_signup.signup(self.request)
+        user_code = UserEmailAuthentication.objects.get(user__email=self.request.data.get('email'))
+        message, status, is_checked = activate.activate(self.request.data.get('email'), user_code.security_code)
+
+        self.assertEqual(True, is_checked)
+
+    def test_user_activate_error(self):
+        """유저 활성화 실패"""
+        print('[이메일 인증코드 확인] 인증코드 확인 실패')
+        user_signup = SignupViewSet()
+        activate = ActivateViewSet()
+
+        self.request.data = {
+            'email': 'testSignup@test.com',
+            'password': '1234qwer',
+            'username': '테스트회원가입',
+            'fullname': '테스트계정회원가입',
+            'phone': '01033334444',
+            'gender': 2,
+        }
+
+        user_signup.signup(self.request)
+        security_code = '-2'
+        message, status, is_checked = activate.activate(self.request.data.get('email'), security_code)
+
+        self.assertEqual(False, is_checked)

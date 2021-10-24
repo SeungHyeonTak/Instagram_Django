@@ -1,9 +1,7 @@
 import datetime
 import random
 
-import jwt
-from django.conf import settings
-from django.contrib.auth import authenticate, logout
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 from django.core.mail import EmailMessage
 from django.core.validators import validate_email
@@ -14,8 +12,8 @@ from rest_framework.response import Response
 from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 from rest_framework_jwt.settings import api_settings
 
-from apps.api.serializers.account import UserSerializer, SignoutSerializer
-from core.account.models import User, UserEmailAuthentication, Administrator
+from apps.api.serializers.account import UserSerializer
+from core.account.models import User, UserEmailAuthentication, Administrator, JWTokens
 
 
 class SignupViewSet(viewsets.ModelViewSet):
@@ -201,7 +199,6 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
         status_code = status.HTTP_403_FORBIDDEN
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        user = User.objects.get(pk=user.pk)
         try:
             user.email = f'Insta-left{user.pk}@instagram.com'
             user.username = '탈퇴계정'
@@ -214,6 +211,7 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
             user.save()
 
             is_checked = True
+            status_code = status.HTTP_200_OK
         except Exception as e:
             print(f'회원탈퇴 Error : {e}')
             is_checked = False
@@ -283,42 +281,46 @@ class SigninViewSet(viewsets.ModelViewSet):
         email = request_data.get('email')
         password = request_data.get('password')
 
-        user = authenticate(email=email, password=password) if email and password else None
-
-        if user and not user.is_active:
-            response_message = {'400 - 2': '회원 계정 활성을 위해 이메일 인증이 필요합니다.'}
-            return response_message, status_code, is_checked
-        elif user and (user.username in 'left'):
+        if 'Insta-left' in email:
             response_message = {'400 - 3': '탈퇴한 회원입니다.'}
             return response_message, status_code, is_checked
-        elif user is None:
-            response_message = {'400 - 4': '이메일 또는 패스워드가 일치하지 않습니다.'}
+
+        user = authenticate(email=email, password=password) if email and password else None
+
+        if user is None:
+            response_message = {
+                '400 - 2': '이메일 또는 패스워드가 일치하지 않습니다.(회원 계정 활성을 위해 이메일 인증이 필요합니다.)'
+            }
             return response_message, status_code, is_checked
         else:
             JWT_PAYLOAD_HANDLER = api_settings.JWT_PAYLOAD_HANDLER
             JWT_ENCODE_HANDLER = api_settings.JWT_ENCODE_HANDLER
 
             is_checked = True
-
             payload = JWT_PAYLOAD_HANDLER(user)
             jwt_token = JWT_ENCODE_HANDLER(payload)
             update_last_login(None, user)
 
-            # JWT
-            # encoded_jwt = jwt.encode(
-            #     {
-            #         'pk': user.pk
-            #     },
-            #     settings.SECRET_KEY,
-            #     algorithm='HS256'
-            # )
             response_message.update({
-                # 'token': encoded_jwt
                 'email': user.email,
                 'token': jwt_token
             })
+            self.token_save(jwt_token, user)
             status_code = status.HTTP_200_OK
             return response_message, status_code, is_checked
+
+    def token_save(self, jwt, user):
+        """발급 token 저장"""
+        try:
+            token, is_token = JWTokens.objects.get_or_create(
+                token=jwt,
+                user=user
+            )
+            # print(is_token)
+            # if not is_token:
+            #     token.delete()
+        except Exception as e:
+            print(f'token 발급 실패 : {e}')
 
     def create(self, request, *args, **kwargs):
         """
@@ -347,7 +349,6 @@ class SignoutViewSet(viewsets.ModelViewSet):
     update: 로그아웃
     """
     queryset = User.objects.all()
-    serializer_class = SignoutSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def signout(self, request):
@@ -356,14 +357,34 @@ class SignoutViewSet(viewsets.ModelViewSet):
         response_message = {}
         status_code = status.HTTP_400_BAD_REQUEST
 
-        if self.request.user.is_authenticated:
+        if request.user.is_authenticated:
+            is_logout = self.token_check(request.user)
+            if not is_logout:
+                response_message = {'401': '유효하지 않는 토큰 정보입니다.'}
+                status_code = status.HTTP_401_UNAUTHORIZED
+                return response_message, status_code, is_checked
+
             is_checked = True
-            logout(request)  # logout함수 안에서 session 정보 삭제
             status_code = status.HTTP_200_OK
             return response_message, status_code, is_checked
         else:
-            response_message = {'400': '유효하지 않은 세션 정보 입니다.'}
+            response_message = {'400': '유효하지 않은 정보 입니다.'}
             return response_message, status_code, is_checked
+
+    def token_check(self, user):
+        """
+        로그아웃을 위한 token 체크 (중복 로그아웃 방지)
+        """
+        is_token = False
+        auth_token = self.request.META.get('HTTP_AUTHORIZATION')
+        bearer, jwt = auth_token.split(' ')
+        token_search = JWTokens.objects.filter(token=jwt, user=user)
+        if token_search:
+            token_search.delete()
+            is_token = True
+
+
+        return is_token
 
     def update(self, request, *args, **kwargs):
         """
@@ -397,7 +418,6 @@ class ActivateViewSet(viewsets.ModelViewSet):
         """파라미터 유효성 검사"""
         request_data = request.data
         is_params_checked = True
-        response_message = {}
         status_code = status.HTTP_200_OK
         loss_params = []
 
@@ -477,9 +497,10 @@ class UserInformationViewSet(viewsets.ModelViewSet):
 
     def get_user_information(self, user):
         user_information = {}
-        status_code = status.HTTP_400_BAD_REQUEST
+        status_code = status.HTTP_403_FORBIDDEN
+        token = self.request.META.get('HTTP_AUTHORIZATION')
 
-        if user.is_authenticated:
+        if user.is_authenticated and JWTokens.objects.filter(token=token, user=user).exists():
             email_auth = UserEmailAuthentication.objects.filter(user=user).first()
 
             user_information.update({
@@ -507,6 +528,8 @@ class UserInformationViewSet(viewsets.ModelViewSet):
                     }
                 })
             status_code = status.HTTP_200_OK
+        else:
+            user_information = {'403': '자격 인증 정보가 없어 유저 정보를 확인할 수 없습니다.'}
 
         return user_information, status_code
 

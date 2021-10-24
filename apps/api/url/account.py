@@ -1,5 +1,6 @@
 from django.urls import path
 import apps.api.views.account as rest_views
+from rest_framework_jwt.views import verify_jwt_token, refresh_jwt_token
 
 app_name = 'account'
 
@@ -17,4 +18,6 @@ urlpatterns = [
     path('signout', signout, name='signout'),
     path('activate', activate, name='activate'),
     path('information', information, name='information'),
+    path('token/verify', verify_jwt_token),  # token 유효성 검증
+    path('token/refresh', refresh_jwt_token),  # token 갱신
 ]

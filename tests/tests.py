@@ -11,11 +11,13 @@ class Test(TestCase):
     user_phone = '01000000000'
     user_username = '테스트계정001'
     user_fullname = '테스트001'
+    user_password = '1234qwer'
 
     user2_email = 'test002@test.com'
     user2_phone = '01012344321'
     user2_username = '테스트계정002'
     user2_fullname = '테스트002'
+    user2_password = '1234qwer'
 
     def setUp(self) -> None:
         """테스트 환경을 위한 DB 세팅"""
@@ -45,10 +47,10 @@ class Test(TestCase):
 
         self.request = HttpRequest()
         self.request.user = self.user
-        session = SessionStore()
-        self.request.session = session
+        # session = SessionStore()
+        # self.request.session = session
 
         self.request2 = HttpRequest()
         self.request2.user2 = self.user2
-        session2 = SessionStore()
-        self.request2.session = session2
+        # session2 = SessionStore()
+        # self.request2.session = session2

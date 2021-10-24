@@ -19,8 +19,16 @@ class AdministratorAdmin(admin.ModelAdmin):
 
 
 @admin.register(UserEmailAuthentication)
-class UserEmailAuthentication(admin.ModelAdmin):
+class UserEmailAuthenticationAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'security_code', 'verification', 'created_at')
+    list_display_links = ('user',)
+    search_fields = ('user',)
+    ordering = ('-created_at',)
+
+
+@admin.register(JWTokens)
+class JWTokensAdmin(admin.ModelAdmin):
+    list_display = ('id', 'token', 'user', 'created_at')
     list_display_links = ('user',)
     search_fields = ('user',)
     ordering = ('-created_at',)
