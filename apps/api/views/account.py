@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 from rest_framework_jwt.settings import api_settings
 
-from apps.api.serializers.account import UserSerializer
+from apps.api.serializers.account import *
 from core.account.models import User, UserEmailAuthentication, Administrator, JWTokens
 
 
@@ -184,7 +184,8 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     authentication_classes = [JSONWebTokenAuthentication]
-    permission_classes = [permissions.IsAuthenticated]  # 인증된 사용자
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WithdrawalSerializer
 
     def params_validate(self, request):
         """파라미터 유효성 검사 (탈퇴이유)"""
@@ -247,6 +248,7 @@ class SigninViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
+    serializer_class = SigninSerializer
 
     def params_validate(self, request):
         """파라미터 유효성 검사"""
@@ -350,6 +352,8 @@ class SignoutViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [JSONWebTokenAuthentication]
+    serializer_class = SignoutSerializer
 
     def signout(self, request):
         """로그아웃 비지니스 로직"""
@@ -383,7 +387,6 @@ class SignoutViewSet(viewsets.ModelViewSet):
             token_search.delete()
             is_token = True
 
-
         return is_token
 
     def update(self, request, *args, **kwargs):
@@ -413,6 +416,7 @@ class ActivateViewSet(viewsets.ModelViewSet):
     queryset = UserEmailAuthentication.objects.all()
     authentication_classes = []
     permission_classes = []
+    serializer_class = UserEmailAuthenticationSerializer
 
     def params_validate(self, request):
         """파라미터 유효성 검사"""
@@ -494,6 +498,7 @@ class UserInformationViewSet(viewsets.ModelViewSet):
     authentication_classes = [JSONWebTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     queryset = User.objects.all()
+    serializer_class = UserSerializer
 
     def get_user_information(self, user):
         user_information = {}
@@ -533,6 +538,62 @@ class UserInformationViewSet(viewsets.ModelViewSet):
 
         return user_information, status_code
 
+    def params_validate(self, request):
+        """유저 정보 수정 파라미터 검사"""
+        request_data = request.data
+        is_params_checked = True
+        response_message = {}
+        status_code = status.HTTP_200_OK
+
+        fullname = request_data.get('fullname', None)
+        photo = request_data.get('photo', None)
+        gender = request_data.get('gender', None)
+        web_site = request_data.get('web_site', None)
+        introduction = request_data.get('introduction', None)
+
+        if fullname is not None:
+            response_message.update({'fullname': fullname})
+        if photo is not None:
+            response_message.update({'photo': photo})
+        if gender is not None:
+            response_message.update({'gender': gender})
+        if web_site is not None:
+            response_message.update({'web_site': web_site})
+        if introduction is not None:
+            response_message.update({'introduction': introduction})
+
+        return response_message, status_code, is_params_checked
+
+    def user_information_update(self, request, **kwargs):
+        response_message = {}
+        is_checked = False
+        status_code = status.HTTP_400_BAD_REQUEST
+        user = User.objects.filter(email=request.user.email).first()
+
+        try:
+            if user:
+                for key, value in kwargs.items():
+                    if 'fullname' is key:
+                        user.fullname = value
+                    if 'photo' is key:
+                        user.photo = value.url
+                    if 'gender' is key:
+                        user.gender = value
+                    if 'web_site' is key:
+                        user.web_site = value
+                    if 'introduction' is key:
+                        user.introduction = value
+                user.save()
+                is_checked = True
+                status_code = status.HTTP_200_OK
+                return response_message, status_code, is_checked
+            else:
+                response_message = {'400': '존재하지 않는 사용자 입니다.'}
+                return response_message, status_code, is_checked
+        except Exception as e:
+            print(f'유저 정보 수정 error : {e}')
+            return response_message, status_code, is_checked
+
     def list(self, request, *args, **kwargs):
         """
         유저정보 조회
@@ -549,17 +610,23 @@ class UserInformationViewSet(viewsets.ModelViewSet):
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             return Response(data=response_message, status=status_code)
 
-    # def partial_update(self, request, *args, **kwargs):
-    #     """
-    #     유저정보 수정
-    #
-    #     ---
-    #     ## /account/information/
-    #     """
-    #     try:
-    #         return Response()
-    #     except Exception as e:
-    #         print(f'error : {e}')
-    #         response_message = {'500': '서버 에러'}
-    #         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-    #         return Response(data=response_message, status=status_code)
+    def partial_update(self, request, *args, **kwargs):
+        """
+        유저정보 수정
+
+        ---
+        ## /account/information/
+        """
+        try:
+            response_message, status_code, is_checked = self.params_validate(request)
+            if is_checked:
+                response_message, status_code, is_checked = self.user_information_update(request, **response_message)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)

@@ -1,7 +1,6 @@
-from tests.tests import Test
-from apps.api.views.account import SignupViewSet, WithdrawalViewSet, SigninViewSet, ActivateViewSet, \
-    UserInformationViewSet
+from apps.api.views.account import SignupViewSet, WithdrawalViewSet, SigninViewSet, ActivateViewSet
 from core.account.models import User, UserEmailAuthentication
+from tests.tests import Test
 
 
 class UsersTest(Test):

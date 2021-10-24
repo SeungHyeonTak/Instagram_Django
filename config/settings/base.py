@@ -166,7 +166,3 @@ JWT_AUTH = {
     'JWT_REFRESH_EXPIRATION_DELTA': datetime.timedelta(days=2),
     'JWT_AUTH_HEADER_PREFIX': 'Bearer'  # token 시작할때 구분자
 }
-
-# celery
-BROKER_URL = 'amqp://guest:guest@localhost:5672//'
-CELERY_IMPORTS = ('apps.celery.tasks')
