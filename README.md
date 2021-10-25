@@ -45,7 +45,7 @@ $ ./manage.py runserver 127.0.0.1:8000 --settings=config.settings.local
 - 게시물 수정 [o]
 - 게시물 삭제 [o]
 - 게시물 목록 조회 [o]
-- 게시물 좋아요
+- 게시물 좋아요 [o]
 - 댓글 기능
 - 댓글 좋아요
 - 팔로우 기능

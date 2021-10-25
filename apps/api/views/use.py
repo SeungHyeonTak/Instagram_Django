@@ -4,8 +4,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 
-from apps.api.serializers.use import PostSerializer
-from core.use.models import Post
+from apps.api.serializers.use import PostSerializer, PostFavSerializer
+from core.use.models import Post, PostLike
 
 
 class PostsViewSet(viewsets.ModelViewSet):
@@ -145,11 +145,13 @@ class PostViewSet(viewsets.ModelViewSet):
 
         try:
             post = self.queryset.get(pk=pk)
+            count = PostLike.objects.filter(post=post).count()
             response_message.update({
                 'id': post.pk,
                 'user': post.user.email,
                 'photo': post.photo.url,
                 'content': post.content,
+                'like_count': count,
                 'created_at': post.created_at.strftime('%Y-%m-%d %H:%M:%S')
             })
             status_code = status.HTTP_200_OK
@@ -304,6 +306,84 @@ class PostViewSet(viewsets.ModelViewSet):
             response_message, status_code, is_checked = self.params_check(pk)
             if is_checked:
                 response_message, status_code, is_checked = self.post_delete(request, pk)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+
+class PostFavViewSet(viewsets.ModelViewSet):
+    """
+    create: 게시물 좋아요
+    """
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JSONWebTokenAuthentication]
+    serializer_class = PostFavSerializer
+    queryset = PostLike.objects.all()
+
+    def params_validate(self, request):
+        """파라미터 검사"""
+        request_data = request.data
+        response_message = {}
+        status_code = status.HTTP_200_OK
+        is_checked = True
+
+        post_id = request_data.get('post_id')
+        if not post_id:
+            response_message = {'400': '필수파라미터(post_id)가 없습니다.'}
+            status_code = status.HTTP_400_BAD_REQUEST
+            is_checked = False
+            return response_message, status_code, is_checked
+
+        return response_message, status_code, is_checked
+
+    def post_like(self, request):
+        request_data = request.data
+        response_message = {}
+        status_code = status.HTTP_400_BAD_REQUEST
+        is_checked = False
+
+        post_id = request_data.get('post_id')
+
+        try:
+            post = Post.objects.get(id=post_id)
+            fav = self.queryset.filter(post=post, user=request.user).first()
+            if not fav:
+                """해당 사용자가 좋아요 누른적 없을때 (좋아요 +1)"""
+                self.queryset.create(
+                    post=post,
+                    user=request.user
+                )
+                response_message = {'message': f'게시물({post_id}) 좋아요'}
+                status_code = status.HTTP_201_CREATED
+                is_checked = True
+                return response_message, status_code, is_checked
+            else:
+                fav.delete()
+                response_message = {'message': f'게시물({post_id}) 좋아요 취소'}
+                status_code = status.HTTP_200_OK
+                is_checked = True
+                return response_message, status_code, is_checked
+        except Post.DoesNotExist:
+            response_message = {'400': '게시물이 존재하지 않습니다.'}
+        return response_message, status_code, is_checked
+
+    def create(self, request, *args, **kwargs):
+        """
+        게시물 좋아요
+
+        ---
+        ## post/favs
+        """
+        try:
+            response_message, status_code, is_checked = self.params_validate(request)
+            if is_checked:
+                response_message, status_code, is_checked = self.post_like(request)
             return Response(
                 data=response_message if is_checked else response_message,
                 status=status_code if is_checked else status_code

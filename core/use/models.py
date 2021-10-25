@@ -26,6 +26,9 @@ class Post(models.Model):
         db_table = 'posts'
         ordering = ['-created_at']
 
+    def __str__(self):
+        return f'{self.user}'
+
 
 class Comments(models.Model):
     """댓글"""
@@ -38,17 +41,21 @@ class Comments(models.Model):
     modified_at = models.DateTimeField(verbose_name=_('수정일'), auto_now=True)
 
     class Meta:
-        db_table = 'comments'
+        db_table = 'comment'
         ordering = ['-created_at']
 
 
 class PostLike(models.Model):
     """
     게시물 좋아요
-    좋아요 누른 사용자 속성 추가하기
     """
     post = models.ForeignKey('Post', on_delete=models.CASCADE)
-    like_count = models.IntegerField(verbose_name=_('게시물 좋아요'), default=0)
+    user = models.ForeignKey('account.User', on_delete=models.CASCADE)
+
+    created_at = models.DateTimeField(verbose_name=_('생성일'), auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
 
 class CommentsLike(models.Model):

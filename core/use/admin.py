@@ -20,7 +20,10 @@ class CommentsAdmin(admin.ModelAdmin):
 
 @admin.register(PostLike)
 class PostLikeAdmin(admin.ModelAdmin):
-    pass
+    list_display = ('id', 'post', 'user', 'created_at')
+    list_display_links = ('id',)
+    search_fields = ('user',)
+    ordering = ('-created_at',)
 
 
 @admin.register(CommentsLike)
