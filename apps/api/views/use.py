@@ -1,8 +1,8 @@
 from rest_framework import viewsets, status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 
 from apps.api.serializers.use import PostSerializer
 from core.use.models import Post
@@ -11,10 +11,11 @@ from core.use.models import Post
 class PostsViewSet(viewsets.ModelViewSet):
     """
     list: 게시물 목록 조회
+    create: 게시물 생성
     """
     serializer_class = PostSerializer
-    authentication_classes = [SessionAuthentication]
-    permission_classes = ''
+    authentication_classes = [JSONWebTokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     pagination = PageNumberPagination()
 
@@ -58,19 +59,8 @@ class PostsViewSet(viewsets.ModelViewSet):
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             return Response(data=response_message, status=status_code)
 
-
-class PostViewSet(viewsets.ModelViewSet):
-    """
-    create: 게시물 생성
-    update: 게시물 수정
-    delete: 게시물 삭제
-    """
-    queryset = Post.objects.all()
-    serializer_class = PostSerializer
-    authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
-
     def params_validate(self, request):
+        """게시물 생성 파라미터 검사"""
         request_data = request.data
         is_params_checked = True
         response_message = {}
@@ -87,6 +77,7 @@ class PostViewSet(viewsets.ModelViewSet):
         return response_message, status_code, is_params_checked
 
     def post_create(self, request):
+        """게시물 생성 비지니스 로직"""
         request_data = request.data
         is_checked = False
         status_code = status.HTTP_400_BAD_REQUEST
@@ -106,32 +97,12 @@ class PostViewSet(viewsets.ModelViewSet):
             response_message = {'400 - 2': '게시물 생성을 실패하였습니다.'}
             return response_message, status_code, is_checked
 
-    def params_patch_validate(self, request):
-        request_data = request.data
-        is_params_checked = True
-        response_message = {}
-        status_code = status.HTTP_200_OK
-
-        photo = request_data.get('photo')
-        content = request_data.get('content')
-
-        # photo, content 두개뿐임
-
-    def post_patch(self, request):
-        request_data = request.data
-        is_checked = False
-        status_code = status.HTTP_400_BAD_REQUEST
-        try:
-            pass
-        except Exception as e:
-            pass
-
     def create(self, request, *args, **kwargs):
         """
         게시물 생성
 
         ---
-        ## /use/post/
+        ## /use/posts/
         """
         try:
             response_message, status_code, is_checked = self.params_validate(request)
@@ -147,20 +118,198 @@ class PostViewSet(viewsets.ModelViewSet):
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             return Response(data=response_message, status=status_code)
 
+
+class PostViewSet(viewsets.ModelViewSet):
+    """
+    retrieve: 게시물 조회
+    partial_update: 게시물 수정
+    destroy: 게시물 삭제
+    """
+    queryset = Post.objects.all()
+    serializer_class = PostSerializer
+    authentication_classes = [JSONWebTokenAuthentication]
+
+    def get_permissions(self):
+        """http method 권한 핸들링"""
+        if self.action == 'patch' or self.action == 'delete':
+            permission_classes = [IsAuthenticated]
+        else:
+            permission_classes = [AllowAny]
+
+        return [permission() for permission in permission_classes]
+
+    def post_detail(self, pk):
+        is_checked = False
+        status_code = status.HTTP_400_BAD_REQUEST
+        response_message = {}
+
+        try:
+            post = self.queryset.get(pk=pk)
+            response_message.update({
+                'id': post.pk,
+                'user': post.user.email,
+                'photo': post.photo.url,
+                'content': post.content,
+                'created_at': post.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+            status_code = status.HTTP_200_OK
+            is_checked = True
+        except Post.DoesNotExist:
+            response_message = {'400 - 2': '게시물이 없습니다.'}
+
+        return response_message, status_code, is_checked
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        게시물 조회
+
+        ---
+        ## /use/post/<int:pk>
+        """
+        try:
+            pk = kwargs.get('pk')
+            response_message, status_code, is_checked = self.params_check(pk)
+            if is_checked:
+                response_message, status_code, is_checked = self.post_detail(pk)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+    def params_patch_validate(self, request, pk):
+        """게시물 수정 파라미터 검사"""
+        request_data = request.data
+        is_params_checked = True
+        response_message = {}
+        status_code = status.HTTP_200_OK
+
+        photo = request_data.get('photo', None)
+        content = request_data.get('content', None)
+
+        if pk is None:
+            is_params_checked = False
+            response_message = {'400 - 1': '필수파라미터(pk)가 없습니다.'}
+            return response_message, status_code, is_params_checked
+
+        if photo is not None:
+            response_message.update({'photo': photo})
+        if content is not None:
+            response_message.update({'content': content})
+        response_message.update({'pk': pk})
+
+        return response_message, status_code, is_params_checked
+
+    def post_patch(self, request, **kwargs):
+        """게시물 수정 비지니스 로직"""
+        is_checked = False
+        response_message = {}
+        status_code = status.HTTP_400_BAD_REQUEST
+        try:
+            post = self.queryset.get(id=kwargs.get('pk'))
+
+            if request.user != post.user:
+                response_message = {'400 - 2': '게시물에 접근할 권한이 없습니다.'}
+                return response_message, status_code, is_checked
+            elif post:
+                for key, value in kwargs.items():
+                    if 'photo' is key:
+                        post.photo = value
+                    if 'content' is key:
+                        post.content = value
+                post.save()
+                is_checked = True
+                status_code = status.HTTP_200_OK
+                response_message = {'message': '게시물이 수정되었습니다.'}
+                return response_message, status_code, is_checked
+
+        except Post.DoesNotExist:
+            response_message = {'400 - 3': '게시물이 존재하지 않습니다.'}
+            return response_message, status_code, is_checked
+        except Exception as e:
+            print(f'게시물 수정 Error : {e}')
+            return response_message, status_code, is_checked
+
     def partial_update(self, request, *args, **kwargs):
         """
         게시물 수정
 
         ---
-        ## /use/post/
+        ## /use/post/<int:pk>
         """
-        pass
+        try:
+            response_message, status_code, is_checked = self.params_patch_validate(request, kwargs.get('pk'))
+            if is_checked:
+                response_message, status_code, is_checked = self.post_patch(request, **response_message)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {"500": "서버 에러"}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+    def params_check(self, pk):
+        """게시물 삭제 파라미터 검사 (해당 게시물의 id값)"""
+        is_checked = True
+        response_message = {}
+        status_code = status.HTTP_200_OK
+
+        if pk is None:
+            is_checked = False
+            response_message = {'400 - 1': '게시물이 존재 하지 않습니다.'}
+            status_code = status.HTTP_400_BAD_REQUEST
+            return response_message, status_code, is_checked
+
+        return response_message, status_code, is_checked
+
+    def post_delete(self, request, pk):
+        """게시물 삭제"""
+        response_message = {}
+        status_code = status.HTTP_400_BAD_REQUEST
+        is_checked = False
+
+        try:
+            post = self.queryset.get(pk=pk)
+            if request.user != post.user:
+                response_message = {'400 - 2': '게시물에 접근할 권한이 없습니다.'}
+            else:
+                post.delete()
+                response_message = {'message': '게시물이 삭제되었습니다.'}
+                status_code = status.HTTP_200_OK
+
+            return response_message, status_code, is_checked
+        except Post.DoesNotExist:
+            response_message = {'400 - 3': '게시물이 존재하지 않습니다.'}
+            return response_message, status_code, is_checked
+        except Exception as e:
+            print(f'게시물 삭제 error : {e}')
+            return response_message, status_code, is_checked
 
     def destroy(self, request, *args, **kwargs):
         """
         게시물 삭제
 
         ---
-        ## /use/post/
+        ## /use/post/<int:pk>
         """
-        pass
+        try:
+            pk = kwargs.get('pk')
+            response_message, status_code, is_checked = self.params_check(pk)
+            if is_checked:
+                response_message, status_code, is_checked = self.post_delete(request, pk)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)

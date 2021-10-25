@@ -1,6 +1,5 @@
 from django.test import TestCase
 from django.http.request import HttpRequest
-from django.contrib.sessions.backends.db import SessionStore
 from core.account.models import User
 
 
@@ -47,10 +46,6 @@ class Test(TestCase):
 
         self.request = HttpRequest()
         self.request.user = self.user
-        # session = SessionStore()
-        # self.request.session = session
 
         self.request2 = HttpRequest()
         self.request2.user2 = self.user2
-        # session2 = SessionStore()
-        # self.request2.session = session2

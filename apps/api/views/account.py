@@ -231,7 +231,6 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
             is_params_checked, reason = self.params_validate(request)
             if is_params_checked:
                 response_message, status_code, is_checked = self.withdrawal(self.request.user, reason)
-                request.session.flush()
                 return Response(data=response_message, status=status_code)
         except Exception as e:
             print(f'error : {e}')
@@ -554,6 +553,7 @@ class UserInformationViewSet(viewsets.ModelViewSet):
         if fullname is not None:
             response_message.update({'fullname': fullname})
         if photo is not None:
+            print(f'photo : {photo}')
             response_message.update({'photo': photo})
         if gender is not None:
             response_message.update({'gender': gender})
@@ -576,7 +576,7 @@ class UserInformationViewSet(viewsets.ModelViewSet):
                     if 'fullname' is key:
                         user.fullname = value
                     if 'photo' is key:
-                        user.photo = value.url
+                        user.photo = value
                     if 'gender' is key:
                         user.gender = value
                     if 'web_site' is key:
