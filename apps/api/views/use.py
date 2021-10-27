@@ -4,8 +4,10 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 
-from apps.api.serializers.use import PostSerializer, PostFavSerializer
-from core.use.models import Post, PostLike
+from apps.api.serializers.use import PostSerializer, PostFavSerializer, CommentSerializer, CommentLikeSerializer, \
+    FollowingSerializer
+from core.use.models import Post, PostLike, Comments, CommentsLike, Following
+from core.account.models import User
 
 
 class PostsViewSet(viewsets.ModelViewSet):
@@ -378,12 +380,246 @@ class PostFavViewSet(viewsets.ModelViewSet):
         게시물 좋아요
 
         ---
-        ## post/favs
+        ## use/post/favs
         """
         try:
             response_message, status_code, is_checked = self.params_validate(request)
             if is_checked:
                 response_message, status_code, is_checked = self.post_like(request)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """
+    create: 댓글 작성
+    """
+    queryset = Comments.objects.all()
+    authentication_classes = [JSONWebTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = CommentSerializer
+
+    def params_validate(self, request):
+        """댓글 파라미터 검사"""
+        request_data = request.data
+        is_checked = True
+        response_message = {}
+        status_code = status.HTTP_200_OK
+        loss_params = []
+
+        content = request_data.get('content', None)
+
+        if content is None:
+            loss_params.append('content')
+
+        if loss_params:
+            response_message = {'400 - 1': f'필수파라미터({",".join(loss_params)})가 없습니다.'}
+            status_code = status.HTTP_400_BAD_REQUEST
+
+        return response_message, status_code, is_checked
+
+    def comment_create(self, request, pk):
+        """댓글 생성 로직"""
+        request_data = request.data
+        is_checked = False
+        status_code = status.HTTP_400_BAD_REQUEST
+        response_message = {}
+
+        try:
+            post = Post.objects.get(pk=pk)
+            Comments.objects.create(
+                user=self.request.user,
+                post=post,
+                content=request_data.get('content')
+            )
+            status_code = status.HTTP_201_CREATED
+            is_checked = True
+        except Post.DoesNotExist:
+            response_message = {'message': '게시물이 없습니다.'}
+        except Exception as e:
+            print(f'댓글 생성 실패 : {e}')
+            response_message = {'400 - 2': '댓글 생성을 실패하였습니다.'}
+
+        return response_message, status_code, is_checked
+
+    def create(self, request, *args, **kwargs):
+        """
+        댓글 작성
+
+        ---
+        ## use/post/<int:pk>/comment
+        """
+        try:
+            pk = kwargs.get('pk')
+            response_message, status_code, is_checked = self.params_validate(request)
+            if is_checked:
+                response_message, status_code, is_checked = self.comment_create(request, pk)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+
+class CommentFavViewSet(viewsets.ModelViewSet):
+    """
+    create: 댓글 좋아요
+    """
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JSONWebTokenAuthentication]
+    serializer_class = CommentLikeSerializer
+    queryset = CommentsLike.objects.all()
+
+    def params_validate(self, request):
+        request_data = request.data
+        response_message = {}
+        status_code = status.HTTP_200_OK
+        is_checked = True
+
+        comment_id = request_data.get('comment_id')
+
+        if not comment_id:
+            response_message = {'400 - 1': '필수파라미터(comment_id)가 없습니다.'}
+            status_code = status.HTTP_400_BAD_REQUEST
+            is_checked = False
+            return response_message, status_code, is_checked
+
+        return response_message, status_code, is_checked
+
+    def comment_favs_create(self, request):
+        request_data = request.data
+        response_message = {}
+        status_code = status.HTTP_400_BAD_REQUEST
+        is_checked = False
+
+        try:
+            comment_id = request_data.get('comment_id')
+            comment = Comments.objects.get(id=comment_id)
+            comment_fav = self.queryset.filter(comment=comment, user=self.request.user).first()
+            if not comment_fav:
+                """좋아요 +1"""
+                self.queryset.create(
+                    comment=comment,
+                    user=self.request.user
+                )
+                response_message = {'message': f'댓글({comment_id}) 좋아요'}
+                status_code = status.HTTP_201_CREATED
+                is_checked = True
+            else:
+                """좋아요 -1"""
+                comment_fav.delete()
+                response_message = {'message': f'댓글({comment_id}) 좋아요 취소'}
+                status_code = status.HTTP_200_OK
+                is_checked = True
+        except Comments.DoesNotExist:
+            response_message = {'400 - 2': '댓글이 존재하지 않습니다.'}
+
+        return response_message, status_code, is_checked
+
+    def create(self, request, *args, **kwargs):
+        """
+        댓글 좋아요
+
+        ---
+        ## use/comment/favs
+        """
+        try:
+            response_message, status_code, is_checked = self.params_validate(request)
+            if is_checked:
+                response_message, status_code, is_checked = self.comment_favs_create(request)
+            return Response(
+                data=response_message if is_checked else response_message,
+                status=status_code if is_checked else status_code
+            )
+        except Exception as e:
+            print(f'error : {e}')
+            response_message = {'500': '서버 에러'}
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(data=response_message, status=status_code)
+
+
+class FollowViewSet(viewsets.ModelViewSet):
+    """
+    create: 팔로우 추가
+    """
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JSONWebTokenAuthentication]
+    serializer_class = FollowingSerializer
+    queryset = Following
+
+    def params_validate(self, request):
+        request_data = request.data
+        response_message = {}
+        status_code = status.HTTP_200_OK
+        is_checked = True
+
+        follow_id = request_data.get('follow_id')
+
+        if not follow_id:
+            response_message = {'400 - 1': '필수파라미터(follow_id)가 없습니다.'}
+            status_code = status.HTTP_400_BAD_REQUEST
+            is_checked = False
+            return response_message, status_code, is_checked
+
+        return response_message, status_code, is_checked
+
+    def follow_create(self, request):
+        status_code = status.HTTP_400_BAD_REQUEST
+        is_checked = False
+
+        follow_user = User.objects.filter(id=request.data.get('follow_id')).first()
+
+        if not follow_user:
+            response_message = {'400 - 2': 'follow 할 상대가 존재하지 않습니다.'}
+            return response_message, status_code, is_checked
+
+        follow = Following.objects.filter(following_user=follow_user, user=request.user).first()
+
+        if follow is None:
+            if follow_user == request.user:
+                response_message = {'message': '자신을 follow할 순 없습니다.'}
+                status_code = status.HTTP_200_OK
+                is_checked = True
+            elif 'Insta-left' in follow_user.email and not follow_user.is_active:
+                response_message = {'message': '이미 탈퇴한 회원입니다.'}
+                status_code = status.HTTP_200_OK
+                is_checked = True
+            else:
+                Following.objects.create(
+                    following_user=follow_user,
+                    user=request.user
+                )
+                response_message = {'message': f'{request.user}님이 {follow_user}님을 follow 하였습니다.'}
+                status_code = status.HTTP_201_CREATED
+                is_checked = True
+            return response_message, status_code, is_checked
+        else:
+            follow.delete()
+            response_message = {'message': f'{request.user}님이 {follow_user}님을 follow 취소 하였습니다.'}
+            return response_message, status_code, is_checked
+
+    def create(self, request, *args, **kwargs):
+        """
+        팔로우 추가
+
+        ---
+        ## use/follow
+        """
+        try:
+            response_message, status_code, is_checked = self.params_validate(request)
+            if is_checked:
+                response_message, status_code, is_checked = self.follow_create(request)
             return Response(
                 data=response_message if is_checked else response_message,
                 status=status_code if is_checked else status_code

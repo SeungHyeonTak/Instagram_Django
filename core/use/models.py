@@ -14,7 +14,6 @@ def get_post_photo_path(instance, filename):
 
 class Post(models.Model):
     """게시물"""
-    # todo: 태그 나중에 추가 (& 사용자 이름 태그) & 현재 위치 관련 속성
     user = models.ForeignKey('account.User', related_name='posts', on_delete=models.CASCADE)
     photo = models.ImageField(verbose_name=_('사진'), upload_to=get_post_photo_path)
     content = models.TextField(verbose_name=_('내용'), null=True, blank=True)
@@ -44,6 +43,9 @@ class Comments(models.Model):
         db_table = 'comment'
         ordering = ['-created_at']
 
+    def __str__(self):
+        return f'{self.user}({self.content})'
+
 
 class PostLike(models.Model):
     """
@@ -61,10 +63,14 @@ class PostLike(models.Model):
 class CommentsLike(models.Model):
     """
     댓글 좋아요
-    좋아요 누른 사용자 속성 추가하기
     """
     comment = models.ForeignKey('Comments', on_delete=models.CASCADE)
-    like_count = models.IntegerField(verbose_name=_('댓글 좋아요'), default=0)
+    user = models.ForeignKey('account.User', on_delete=models.CASCADE)
+
+    created_at = models.DateTimeField(verbose_name=_('생성일'), auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
 
 class Following(models.Model):

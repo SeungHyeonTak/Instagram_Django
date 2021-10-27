@@ -12,7 +12,7 @@ class PostAdmin(admin.ModelAdmin):
 
 @admin.register(Comments)
 class CommentsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'content', 'created_at',)
+    list_display = ('id', 'user', 'post', 'content', 'created_at',)
     list_display_links = ('id',)
     search_fields = ('user',)
     ordering = ('-created_at',)
@@ -28,7 +28,10 @@ class PostLikeAdmin(admin.ModelAdmin):
 
 @admin.register(CommentsLike)
 class CommentsLikeAdmin(admin.ModelAdmin):
-    pass
+    list_display = ('id', 'comment', 'user', 'created_at',)
+    list_display_links = ('id',)
+    search_fields = ('user',)
+    ordering = ('-created_at',)
 
 
 @admin.register(Following)

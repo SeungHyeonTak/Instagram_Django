@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from core.use.models import Post, PostLike
+from core.use.models import Post, PostLike, Comments, CommentsLike, Following
 
 
 class PostFavSerializer(serializers.ModelSerializer):
@@ -24,3 +24,21 @@ class PostSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Post
         fields = ('id', 'user', 'photo', 'content')
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comments
+        fields = '__all__'
+
+
+class CommentLikeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommentsLike
+        fields = '__all__'
+
+
+class FollowingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Following
+        fields = '__all__'
