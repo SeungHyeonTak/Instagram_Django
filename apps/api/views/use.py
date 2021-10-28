@@ -85,18 +85,18 @@ class PostsViewSet(viewsets.ModelViewSet):
         status_code = status.HTTP_400_BAD_REQUEST
         try:
             post = Post.objects.create(
-                user=self.request.user,
+                user=request.user,
                 photo=request_data.get('photo'),
                 content=request_data.get('content', None),
             )
-            status_code = status.HTTP_201_CREATED
+
             serializer = PostSerializer(post)
             response_message = serializer.data
             is_checked = True
+            status_code = status.HTTP_201_CREATED
             return response_message, status_code, is_checked
         except Exception as e:
-            print(f'게시물 생성 실패 : {e}')
-            response_message = {'400 - 2': '게시물 생성을 실패하였습니다.'}
+            response_message = {'400 - 2': '게시물 생성을 실패하였습니다.(사진이 없습니다.)'}
             return response_message, status_code, is_checked
 
     def create(self, request, *args, **kwargs):
@@ -435,7 +435,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         try:
             post = Post.objects.get(pk=pk)
             Comments.objects.create(
-                user=self.request.user,
+                user=request.user,
                 post=post,
                 content=request_data.get('content')
             )
